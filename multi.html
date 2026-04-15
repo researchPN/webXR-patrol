@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>zer0point.io - Multi Model</title>
+  <meta name="description" content="View multiple 3D models in WebXR on Meta Quest">
+  <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
+  <style>
+    body { margin: 0; overflow: hidden; }
+    #info {
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0, 0, 0, 0.7);
+      color: white;
+      padding: 12px 24px;
+      border-radius: 8px;
+      font-family: sans-serif;
+      font-size: 14px;
+      text-align: center;
+      z-index: 10;
+      pointer-events: none;
+    }
+    #controls {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0, 0, 0, 0.8);
+      color: white;
+      padding: 12px 20px;
+      border-radius: 8px;
+      font-family: sans-serif;
+      font-size: 14px;
+      z-index: 10;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      align-items: center;
+    }
+    .model-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .model-row .label {
+      min-width: 80px;
+      font-weight: bold;
+    }
+    .model-row button {
+      background: #444;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      width: 32px;
+      height: 32px;
+      font-size: 18px;
+      cursor: pointer;
+    }
+    .model-row button:hover { background: #666; }
+    .model-row .select-btn {
+      width: auto;
+      padding: 4px 12px;
+      font-size: 14px;
+    }
+    .model-row .select-btn.active {
+      background: #00aa55;
+    }
+    .height-controls button {
+      width: auto;
+      padding: 4px 10px;
+      font-size: 12px;
+    }
+    #ar-button {
+      position: fixed;
+      bottom: 140px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #00aa55;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      padding: 14px 32px;
+      font-size: 18px;
+      font-family: sans-serif;
+      font-weight: bold;
+      cursor: pointer;
+      z-index: 20;
+      display: none;
+    }
+    #ar-button:hover { background: #00cc66; }
+  </style>
+</head>
+<body>
+  <div id="info">
+    Both models loaded. Select a model, then click to place it.<br>
+    <strong>Quest:</strong> Grip = select + placement mode, Trigger = place, Thumbstick = scale<br>
+    <strong>Desktop:</strong> Click buttons below, click scene to place
+  </div>
+  <button id="ar-button">Enter AR</button>
+
+  <div id="controls">
+    <div class="model-row">
+      <span class="label" style="color: #4fc3f7;">Model</span>
+      <button class="select-btn active" id="select-model1">Select</button>
+      <button id="scale-down-1">-</button>
+      <span id="scale-label-1">1.00x</span>
+      <button id="scale-up-1">+</button>
+      <span class="height-controls">
+        H: <button id="height-down-1">v</button>
+        <button id="height-up-1">^</button>
+      </span>
+    </div>
+    <div class="model-row">
+      <span class="label" style="color: #ff8a65;">Dancing</span>
+      <button class="select-btn" id="select-model2">Select</button>
+      <button id="scale-down-2">-</button>
+      <span id="scale-label-2">1.00x</span>
+      <button id="scale-up-2">+</button>
+      <span class="height-controls">
+        H: <button id="height-down-2">v</button>
+        <button id="height-up-2">^</button>
+      </span>
+    </div>
+  </div>
+
+  <a-scene
+    vr-mode-ui="enabled: true"
+    webxr="requiredFeatures: local-floor; optionalFeatures: bounded-floor, hand-tracking; referenceSpaceType: local-floor"
+    renderer="colorManagement: true; physicallyCorrectLights: true; alpha: true"
+    background="transparent: true"
+    loading-screen="dotsColor: white; backgroundColor: #111"
+  >
+    <!-- Lighting -->
+    <a-entity light="type: ambient; color: #BBB; intensity: 0.6"></a-entity>
+    <a-entity light="type: directional; color: #FFF; intensity: 0.8" position="1 3 2"></a-entity>
+    <a-entity light="type: directional; color: #AAC; intensity: 0.4" position="-2 1 -1"></a-entity>
+
+    <!-- Model 1: static model on the floor -->
+    <a-entity
+      id="model1"
+      gltf-model="url(model.glb)"
+      position="-1 0 -2"
+      scale="1 1 1"
+    ></a-entity>
+
+    <!-- Model 2: dancing model (with animation), offset to the right -->
+    <a-entity
+      id="model2"
+      gltf-model="url(dancing.glb)"
+      position="1 0 -2"
+      scale="1 1 1"
+      animation-mixer="loop: repeat"
+    ></a-entity>
+
+    <!-- Selection indicator ring — appears under selected model -->
+    <a-ring
+      id="selection-ring"
+      rotation="-90 0 0"
+      radius-inner="0.25"
+      radius-outer="0.3"
+      color="#00ff88"
+      opacity="0.6"
+      position="-1 0.01 -2"
+    ></a-ring>
+
+    <!-- Placement reticle -->
+    <a-entity id="reticle" visible="false">
+      <a-ring rotation="-90 0 0" radius-inner="0.13" radius-outer="0.15" color="#00ff88" opacity="0.8"></a-ring>
+      <a-circle rotation="-90 0 0" radius="0.12" color="#00ff88" opacity="0.2"></a-circle>
+    </a-entity>
+
+    <!-- Ground plane (VR only) -->
+    <a-plane rotation="-90 0 0" width="8" height="8" color="#222" opacity="0.15" position="0 0 -2" class="ar-hide"></a-plane>
+
+    <!-- Camera -->
+    <a-entity id="rig" position="0 0 0">
+      <a-camera position="0 1.6 0" wasd-controls="enabled: true" look-controls="pointerLockEnabled: false"></a-camera>
+    </a-entity>
+
+    <!-- Quest controllers -->
+    <a-entity id="left-hand" oculus-touch-controls="hand: left" laser-controls="hand: left"></a-entity>
+    <a-entity id="right-hand" oculus-touch-controls="hand: right" laser-controls="hand: right"></a-entity>
+  </a-scene>
+
+  <script>
+    // AR button
+    (function () {
+      const arButton = document.getElementById('ar-button');
+      const scene = document.querySelector('a-scene');
+      if (navigator.xr) {
+        navigator.xr.isSessionSupported('immersive-ar').then(function (supported) {
+          if (supported) arButton.style.display = 'block';
+        });
+      }
+      arButton.addEventListener('click', function () {
+        navigator.xr.requestSession('immersive-ar', {
+          requiredFeatures: ['local-floor'],
+          optionalFeatures: ['bounded-floor', 'hand-tracking']
+        }).then(function (session) {
+          scene.renderer.xr.setReferenceSpaceType('local-floor');
+          scene.renderer.xr.setSession(session);
+          document.querySelectorAll('.ar-hide').forEach(el => el.setAttribute('visible', false));
+          arButton.style.display = 'none';
+          session.addEventListener('end', function () {
+            document.querySelectorAll('.ar-hide').forEach(el => el.setAttribute('visible', true));
+            arButton.style.display = 'block';
+          });
+        }).catch(err => console.error('AR failed:', err));
+      });
+    })();
+
+    // AR/VR hide logic
+    document.querySelector('a-scene').addEventListener('enter-vr', function () {
+      if (this.is('ar-mode')) {
+        document.querySelectorAll('.ar-hide').forEach(el => el.setAttribute('visible', false));
+      }
+    });
+    document.querySelector('a-scene').addEventListener('exit-vr', function () {
+      document.querySelectorAll('.ar-hide').forEach(el => el.setAttribute('visible', true));
+    });
+
+    // Multi-model controls
+    (function () {
+      const scene = document.querySelector('a-scene');
+      const camera = document.querySelector('a-camera');
+      const reticle = document.getElementById('reticle');
+      const selectionRing = document.getElementById('selection-ring');
+
+      const models = {
+        model1: {
+          el: document.getElementById('model1'),
+          scale: 1,
+          label: document.getElementById('scale-label-1')
+        },
+        model2: {
+          el: document.getElementById('model2'),
+          scale: 1,
+          label: document.getElementById('scale-label-2')
+        }
+      };
+
+      let selected = 'model1';
+      const SCALE_STEP = 0.1;
+      const SCALE_MIN = 0.05;
+      const SCALE_MAX = 50;
+      const HEIGHT_STEP = 0.1;
+
+      const raycaster = new THREE.Raycaster();
+      const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+      const intersection = new THREE.Vector3();
+      let placementMode = false;
+      let activeController = null;
+
+      function selectModel(id) {
+        selected = id;
+        document.getElementById('select-model1').classList.toggle('active', id === 'model1');
+        document.getElementById('select-model2').classList.toggle('active', id === 'model2');
+        updateSelectionRing();
+      }
+
+      function updateSelectionRing() {
+        const pos = models[selected].el.getAttribute('position');
+        selectionRing.setAttribute('position', { x: pos.x, y: pos.y + 0.01, z: pos.z });
+      }
+
+      function setScale(id, s) {
+        const m = models[id];
+        m.scale = Math.max(SCALE_MIN, Math.min(SCALE_MAX, s));
+        m.el.setAttribute('scale', { x: m.scale, y: m.scale, z: m.scale });
+        m.label.textContent = m.scale.toFixed(2) + 'x';
+      }
+
+      function adjustHeight(id, delta) {
+        const el = models[id].el;
+        const pos = el.getAttribute('position');
+        el.setAttribute('position', { x: pos.x, y: Math.max(0, pos.y + delta), z: pos.z });
+        if (id === selected) updateSelectionRing();
+      }
+
+      // Desktop select buttons
+      document.getElementById('select-model1').addEventListener('click', e => { e.stopPropagation(); selectModel('model1'); });
+      document.getElementById('select-model2').addEventListener('click', e => { e.stopPropagation(); selectModel('model2'); });
+
+      // Desktop scale buttons
+      document.getElementById('scale-up-1').addEventListener('click', e => { e.stopPropagation(); setScale('model1', models.model1.scale + SCALE_STEP); });
+      document.getElementById('scale-down-1').addEventListener('click', e => { e.stopPropagation(); setScale('model1', models.model1.scale - SCALE_STEP); });
+      document.getElementById('scale-up-2').addEventListener('click', e => { e.stopPropagation(); setScale('model2', models.model2.scale + SCALE_STEP); });
+      document.getElementById('scale-down-2').addEventListener('click', e => { e.stopPropagation(); setScale('model2', models.model2.scale - SCALE_STEP); });
+
+      // Desktop height buttons
+      document.getElementById('height-up-1').addEventListener('click', e => { e.stopPropagation(); adjustHeight('model1', HEIGHT_STEP); });
+      document.getElementById('height-down-1').addEventListener('click', e => { e.stopPropagation(); adjustHeight('model1', -HEIGHT_STEP); });
+      document.getElementById('height-up-2').addEventListener('click', e => { e.stopPropagation(); adjustHeight('model2', HEIGHT_STEP); });
+      document.getElementById('height-down-2').addEventListener('click', e => { e.stopPropagation(); adjustHeight('model2', -HEIGHT_STEP); });
+
+      // Keyboard: +/- for scale, [/] for height, 1/2 to select model
+      window.addEventListener('keydown', function (evt) {
+        if (evt.key === '1') selectModel('model1');
+        if (evt.key === '2') selectModel('model2');
+        if (evt.key === '+' || evt.key === '=') setScale(selected, models[selected].scale + SCALE_STEP);
+        if (evt.key === '-' || evt.key === '_') setScale(selected, models[selected].scale - SCALE_STEP);
+        if (evt.key === '[') adjustHeight(selected, -HEIGHT_STEP);
+        if (evt.key === ']') adjustHeight(selected, HEIGHT_STEP);
+      });
+
+      // Quest controllers
+      scene.addEventListener('loaded', function () {
+        // Grip = toggle placement mode for selected model
+        function onGripDown(evt) {
+          placementMode = !placementMode;
+          activeController = evt.target;
+          reticle.setAttribute('visible', placementMode);
+        }
+
+        // Trigger = place selected model OR switch selection
+        function onTriggerDown() {
+          if (placementMode) {
+            const pos = reticle.getAttribute('position');
+            const el = models[selected].el;
+            const currentY = el.getAttribute('position').y;
+            el.setAttribute('position', { x: pos.x, y: currentY, z: pos.z });
+            placementMode = false;
+            reticle.setAttribute('visible', false);
+            updateSelectionRing();
+          }
+        }
+
+        // A button = select model1, B button = select model2
+        ['left-hand', 'right-hand'].forEach(id => {
+          const hand = document.getElementById(id);
+          hand.addEventListener('gripdown', onGripDown);
+          hand.addEventListener('triggerdown', onTriggerDown);
+          hand.addEventListener('abuttondown', () => selectModel('model1'));
+          hand.addEventListener('bbuttondown', () => selectModel('model2'));
+          hand.addEventListener('xbuttondown', () => selectModel('model1'));
+          hand.addEventListener('ybuttondown', () => selectModel('model2'));
+        });
+
+        // Thumbstick: Y = scale, X = height
+        const thumbstickThreshold = 0.5;
+        let cooldown = false;
+        ['left-hand', 'right-hand'].forEach(id => {
+          document.getElementById(id).addEventListener('thumbstickmoved', function (evt) {
+            if (cooldown) return;
+            const { x, y } = evt.detail;
+            if (y < -thumbstickThreshold) {
+              setScale(selected, models[selected].scale * 1.15);
+              cooldown = true;
+              setTimeout(() => { cooldown = false; }, 200);
+            } else if (y > thumbstickThreshold) {
+              setScale(selected, models[selected].scale / 1.15);
+              cooldown = true;
+              setTimeout(() => { cooldown = false; }, 200);
+            } else if (x > thumbstickThreshold) {
+              adjustHeight(selected, HEIGHT_STEP);
+              cooldown = true;
+              setTimeout(() => { cooldown = false; }, 200);
+            } else if (x < -thumbstickThreshold) {
+              adjustHeight(selected, -HEIGHT_STEP);
+              cooldown = true;
+              setTimeout(() => { cooldown = false; }, 200);
+            }
+          });
+        });
+
+        // Reticle tracking
+        scene.renderer.setAnimationLoop(function () {
+          if (!placementMode || !activeController) return;
+          const obj = activeController.object3D;
+          const pos = new THREE.Vector3();
+          const dir = new THREE.Vector3(0, 0, -1);
+          obj.getWorldPosition(pos);
+          dir.applyQuaternion(obj.getWorldQuaternion(new THREE.Quaternion()));
+          raycaster.set(pos, dir);
+          if (raycaster.ray.intersectPlane(floorPlane, intersection)) {
+            reticle.setAttribute('position', { x: intersection.x, y: intersection.y, z: intersection.z });
+          }
+        });
+      });
+
+      // Desktop click to place
+      window.addEventListener('click', function (evt) {
+        if (scene.is('vr-mode')) return;
+        if (evt.target.closest('#controls')) return;
+
+        const rect = scene.canvas.getBoundingClientRect();
+        const mouse = new THREE.Vector2(
+          ((evt.clientX - rect.left) / rect.width) * 2 - 1,
+          -((evt.clientY - rect.top) / rect.height) * 2 + 1
+        );
+        const cam = camera.getObject3D('camera');
+        raycaster.setFromCamera(mouse, cam);
+
+        if (raycaster.ray.intersectPlane(floorPlane, intersection)) {
+          const el = models[selected].el;
+          const currentY = el.getAttribute('position').y;
+          el.setAttribute('position', { x: intersection.x, y: currentY, z: intersection.z });
+          updateSelectionRing();
+        }
+      });
+    })();
+  </script>
+</body>
+</html>
