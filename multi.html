@@ -157,6 +157,11 @@
       position="0 0.01 0"
     ></a-ring>
 
+    <!-- DEBUG: floating sphere that changes color to show what's happening -->
+    <a-sphere id="debug-sphere" radius="0.08" position="0 2 -1.5" color="gray">
+      <a-text value="idle" align="center" position="0 0.15 0" scale="0.5 0.5 0.5" color="white"></a-text>
+    </a-sphere>
+
     <!-- Ground plane (VR only) -->
     <a-plane rotation="-90 0 0" width="8" height="8" color="#222" opacity="0.15" position="0 0 -2" class="ar-hide"></a-plane>
 
@@ -273,6 +278,14 @@
       // Track which model the controller ray is currently hovering over
       let hoveredModel = null;
 
+      // DEBUG helper — floating sphere shows state
+      const debugSphere = document.getElementById('debug-sphere');
+      const debugText = debugSphere.querySelector('a-text');
+      function debugState(color, label) {
+        debugSphere.setAttribute('color', color);
+        debugText.setAttribute('value', label);
+      }
+
       // Get point along controller ray at given distance
       function getPointOnRay(controllerObj3D, distance) {
         controllerObj3D.getWorldPosition(tempVec);
@@ -294,17 +307,20 @@
               const modelId = hitEl.dataset.model;
               hoveredModel = modelId;
               setSelected(modelId);
+              debugState('yellow', 'HOVER: ' + modelId);  // DEBUG: yellow = ray is hitting a model
             }
           });
 
           hand.addEventListener('raycaster-intersection-cleared', function () {
             if (!grabbed) {
               hoveredModel = null;
+              debugState('gray', 'idle');  // DEBUG: gray = ray not hitting anything
             }
           });
 
           // Grip down (side squeeze) = grab the hovered model
           function onGrab() {
+            debugState('orange', 'BTN pressed, hov=' + (hoveredModel || 'null'));  // DEBUG: orange = button fired
             if (hoveredModel) {
               grabbed = hoveredModel;
               grabController = hand;
@@ -313,14 +329,17 @@
               hand.object3D.getWorldPosition(tempVec);
               grabDistance = tempVec.distanceTo(modelPos);
               setSelected(grabbed);
+              debugState('red', 'GRAB: ' + grabbed + ' d=' + grabDistance.toFixed(1));  // DEBUG: red = grab active
             }
           }
 
           // Grip up = release/drop
           function onRelease() {
+            debugState('cyan', 'BTN released');  // DEBUG: cyan = release fired
             if (grabbed && grabController === hand) {
               grabbed = null;
               grabController = null;
+              debugState('green', 'DROPPED');  // DEBUG: green = successfully dropped
             }
           }
 
@@ -361,10 +380,17 @@
         });
 
         // Each frame: if grabbing, move the model along the ray
+        let loopCount = 0;
         scene.renderer.setAnimationLoop(function (time, frame) {
           scene.render();
+          loopCount++;
+          // DEBUG: if loop runs, blink the debug sphere size every 60 frames
+          if (loopCount % 60 === 0) {
+            debugSphere.setAttribute('radius', loopCount % 120 === 0 ? 0.08 : 0.1);
+          }
 
           if (grabbed && grabController) {
+            debugState('magenta', 'MOVING ' + grabbed);  // DEBUG: magenta = loop is updating position
             const point = getPointOnRay(grabController.object3D, grabDistance);
             modelData[grabbed].el.setAttribute('position', {
               x: point.x,
