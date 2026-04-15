@@ -113,7 +113,7 @@
   </div>
 
   <a-scene
-    vr-mode-ui="enabled: true"
+    vr-mode-ui="enabled: true; enterAREnabled: true; enterARButton: #ar-button"
     webxr="requiredFeatures: local-floor; optionalFeatures: bounded-floor, hand-tracking; referenceSpaceType: local-floor"
     renderer="colorManagement: true; physicallyCorrectLights: true; alpha: true"
     background="transparent: true"
@@ -175,7 +175,7 @@
   </a-scene>
 
   <script>
-    // AR button
+    // AR button — uses A-Frame's native enterAR so controllers/raycasters work
     (function () {
       const arButton = document.getElementById('ar-button');
       const scene = document.querySelector('a-scene');
@@ -185,19 +185,25 @@
         });
       }
       arButton.addEventListener('click', function () {
-        navigator.xr.requestSession('immersive-ar', {
-          requiredFeatures: ['local-floor'],
-          optionalFeatures: ['bounded-floor', 'hand-tracking']
-        }).then(function (session) {
-          scene.renderer.xr.setReferenceSpaceType('local-floor');
-          scene.renderer.xr.setSession(session);
-          document.querySelectorAll('.ar-hide').forEach(el => el.setAttribute('visible', false));
-          arButton.style.display = 'none';
-          session.addEventListener('end', function () {
-            document.querySelectorAll('.ar-hide').forEach(el => el.setAttribute('visible', true));
-            arButton.style.display = 'block';
+        if (scene.enterAR) {
+          scene.enterAR();
+        } else {
+          // Fallback for older A-Frame: patch xrSessionMode then enter VR
+          scene.setAttribute('webxr', 'requiredFeatures: local-floor; optionalFeatures: bounded-floor, hand-tracking; referenceSpaceType: local-floor');
+          if (scene.systems.webxr) {
+            scene.systems.webxr.sessionMode = 'immersive-ar';
+          }
+          scene.enterVR();
+        }
+        arButton.style.display = 'none';
+      });
+
+      scene.addEventListener('exit-vr', function () {
+        if (navigator.xr) {
+          navigator.xr.isSessionSupported('immersive-ar').then(function (supported) {
+            if (supported) arButton.style.display = 'block';
           });
-        }).catch(err => console.error('AR failed:', err));
+        }
       });
     })();
 
