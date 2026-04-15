@@ -22,10 +22,42 @@
       z-index: 10;
       pointer-events: none;
     }
+    #scale-ui {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0, 0, 0, 0.7);
+      color: white;
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-family: sans-serif;
+      font-size: 14px;
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    #scale-ui button {
+      background: #444;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      width: 36px;
+      height: 36px;
+      font-size: 20px;
+      cursor: pointer;
+    }
+    #scale-ui button:hover { background: #666; }
   </style>
 </head>
 <body>
   <div id="info">Place your GLB file as <strong>model.glb</strong> next to this HTML file, then enter AR.</div>
+  <div id="scale-ui">
+    <button id="scale-down">-</button>
+    <span id="scale-label">Scale: 1.00x</span>
+    <button id="scale-up">+</button>
+  </div>
 
   <a-scene
     vr-mode-ui="enabled: true"
@@ -158,6 +190,54 @@
             });
           }
         });
+      });
+
+      // Scale controls
+      let currentScale = 1;
+      const SCALE_STEP = 0.1;
+      const SCALE_MIN = 0.05;
+      const SCALE_MAX = 50;
+      const scaleLabel = document.getElementById('scale-label');
+
+      function setScale(s) {
+        currentScale = Math.max(SCALE_MIN, Math.min(SCALE_MAX, s));
+        model.setAttribute('scale', { x: currentScale, y: currentScale, z: currentScale });
+        scaleLabel.textContent = 'Scale: ' + currentScale.toFixed(2) + 'x';
+      }
+
+      // Desktop buttons
+      document.getElementById('scale-up').addEventListener('click', function (e) {
+        e.stopPropagation();
+        setScale(currentScale + SCALE_STEP);
+      });
+      document.getElementById('scale-down').addEventListener('click', function (e) {
+        e.stopPropagation();
+        setScale(currentScale - SCALE_STEP);
+      });
+
+      // Quest thumbstick: Y-axis up = scale up, down = scale down
+      const thumbstickThreshold = 0.5;
+      let thumbstickCooldown = false;
+      ['left-hand', 'right-hand'].forEach(id => {
+        document.getElementById(id).addEventListener('thumbstickmoved', function (evt) {
+          if (thumbstickCooldown) return;
+          const y = evt.detail.y;
+          if (y < -thumbstickThreshold) {
+            setScale(currentScale * 1.15);
+            thumbstickCooldown = true;
+            setTimeout(() => { thumbstickCooldown = false; }, 200);
+          } else if (y > thumbstickThreshold) {
+            setScale(currentScale / 1.15);
+            thumbstickCooldown = true;
+            setTimeout(() => { thumbstickCooldown = false; }, 200);
+          }
+        });
+      });
+
+      // Keyboard: + / - keys
+      window.addEventListener('keydown', function (evt) {
+        if (evt.key === '+' || evt.key === '=') setScale(currentScale + SCALE_STEP);
+        if (evt.key === '-' || evt.key === '_') setScale(currentScale - SCALE_STEP);
       });
 
       // Fallback for desktop/flat screen: click to place
