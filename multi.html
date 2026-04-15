@@ -6,6 +6,36 @@
   <meta name="description" content="View multiple 3D models in WebXR on Meta Quest">
   <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
   <script src="https://cdn.jsdelivr.net/gh/c-frame/aframe-extras@7.5.0/dist/aframe-extras.min.js"></script>
+  <script>
+    // FIX #1: Register component BEFORE scene parses — tick runs inside A-Frame's own loop
+    AFRAME.registerComponent('grab-updater', {
+      tick: function () {
+        var state = window.grabState;
+        if (!state || !state.grabbed || !state.grabController) return;
+
+        var obj = state.grabController.object3D;
+        var pos = new THREE.Vector3();
+        var dir = new THREE.Vector3(0, 0, -1);
+        var quat = new THREE.Quaternion();
+        obj.getWorldPosition(pos);
+        obj.getWorldQuaternion(quat);
+        dir.applyQuaternion(quat);
+        var point = pos.addScaledVector(dir, state.grabDistance);
+
+        state.modelData[state.grabbed].el.setAttribute('position', {
+          x: point.x, y: point.y, z: point.z
+        });
+
+        var ring = document.getElementById('selection-ring');
+        ring.setAttribute('position', { x: point.x, y: point.y + 0.01, z: point.z });
+
+        // DEBUG
+        var ds = document.getElementById('debug-sphere');
+        ds.setAttribute('color', 'magenta');
+        ds.querySelector('a-text').setAttribute('value', 'MOVING ' + state.grabbed);
+      }
+    });
+  </script>
   <style>
     body { margin: 0; overflow: hidden; }
     #info {
@@ -118,6 +148,7 @@
     renderer="colorManagement: true; physicallyCorrectLights: true; alpha: true"
     background="transparent: true"
     loading-screen="dotsColor: white; backgroundColor: #111"
+    grab-updater
   >
     <!-- Lighting -->
     <a-entity light="type: ambient; color: #BBB; intensity: 0.6"></a-entity>
@@ -239,6 +270,9 @@
       // Distance from controller when grabbed (keeps model at same distance along ray)
       let grabDistance = 0;
 
+      // FIX #1: Expose grab state to the grab-updater component via window
+      window.grabState = { grabbed: null, grabController: null, grabDistance: 0, modelData: null };
+
       const SCALE_STEP = 0.1;
       const SCALE_MIN = 0.05;
       const SCALE_MAX = 50;
@@ -277,6 +311,7 @@
 
       // Track which model the controller ray is currently hovering over
       let hoveredModel = null;
+      let lastHoveredModel = null;  // FIX #2: remembers last hovered even if ray drifts off
 
       // DEBUG helper — floating sphere shows state
       const debugSphere = document.getElementById('debug-sphere');
@@ -306,40 +341,51 @@
             if (hitEl && hitEl.classList.contains('hitbox')) {
               const modelId = hitEl.dataset.model;
               hoveredModel = modelId;
+              lastHoveredModel = modelId;  // FIX #2: remember it
               setSelected(modelId);
-              debugState('yellow', 'HOVER: ' + modelId);  // DEBUG: yellow = ray is hitting a model
+              debugState('yellow', 'HOVER: ' + modelId);
             }
           });
 
           hand.addEventListener('raycaster-intersection-cleared', function () {
             if (!grabbed) {
               hoveredModel = null;
-              debugState('gray', 'idle');  // DEBUG: gray = ray not hitting anything
+              // Don't clear lastHoveredModel — keep it for grab fallback
+              debugState('gray', 'idle');
             }
           });
 
-          // Grip down (side squeeze) = grab the hovered model
+          // Grip/trigger down = grab the hovered model (or last hovered)
           function onGrab() {
-            debugState('orange', 'BTN pressed, hov=' + (hoveredModel || 'null'));  // DEBUG: orange = button fired
-            if (hoveredModel) {
-              grabbed = hoveredModel;
+            const target = hoveredModel || lastHoveredModel;  // FIX #2: fallback to last hovered
+            debugState('orange', 'BTN hov=' + (hoveredModel || 'null') + ' last=' + (lastHoveredModel || 'null'));
+            if (target) {
+              grabbed = target;
               grabController = hand;
               const modelPos = new THREE.Vector3();
               modelData[grabbed].el.object3D.getWorldPosition(modelPos);
               hand.object3D.getWorldPosition(tempVec);
               grabDistance = tempVec.distanceTo(modelPos);
               setSelected(grabbed);
-              debugState('red', 'GRAB: ' + grabbed + ' d=' + grabDistance.toFixed(1));  // DEBUG: red = grab active
+              // FIX #1: sync to global state for grab-updater component
+              window.grabState.grabbed = grabbed;
+              window.grabState.grabController = grabController;
+              window.grabState.grabDistance = grabDistance;
+              window.grabState.modelData = modelData;
+              debugState('red', 'GRAB: ' + grabbed + ' d=' + grabDistance.toFixed(1));
             }
           }
 
           // Grip up = release/drop
           function onRelease() {
-            debugState('cyan', 'BTN released');  // DEBUG: cyan = release fired
+            debugState('cyan', 'BTN released');
             if (grabbed && grabController === hand) {
               grabbed = null;
               grabController = null;
-              debugState('green', 'DROPPED');  // DEBUG: green = successfully dropped
+              // FIX #1: sync to global state
+              window.grabState.grabbed = null;
+              window.grabState.grabController = null;
+              debugState('green', 'DROPPED');
             }
           }
 
@@ -379,31 +425,7 @@
           });
         });
 
-        // Each frame: if grabbing, move the model along the ray
-        let loopCount = 0;
-        scene.renderer.setAnimationLoop(function (time, frame) {
-          scene.render();
-          loopCount++;
-          // DEBUG: if loop runs, blink the debug sphere size every 60 frames
-          if (loopCount % 60 === 0) {
-            debugSphere.setAttribute('radius', loopCount % 120 === 0 ? 0.08 : 0.1);
-          }
-
-          if (grabbed && grabController) {
-            debugState('magenta', 'MOVING ' + grabbed);  // DEBUG: magenta = loop is updating position
-            const point = getPointOnRay(grabController.object3D, grabDistance);
-            modelData[grabbed].el.setAttribute('position', {
-              x: point.x,
-              y: point.y,
-              z: point.z
-            });
-            selectionRing.setAttribute('position', {
-              x: point.x,
-              y: point.y + 0.01,
-              z: point.z
-            });
-          }
-        });
+        // FIX #1: removed setAnimationLoop — grab-updater component handles per-frame updates
       });
 
       // --- Desktop controls ---
