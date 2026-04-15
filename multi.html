@@ -284,6 +284,8 @@
       scene.addEventListener('loaded', function () {
         ['left-hand', 'right-hand'].forEach(handId => {
           const hand = document.getElementById(handId);
+          // The oculus-touch-controls child fires button events
+          const controllerChild = hand.querySelector('[oculus-touch-controls]');
 
           // Raycaster hover events — fired by A-Frame when ray intersects .hitbox
           hand.addEventListener('raycaster-intersection', function (evt) {
@@ -291,7 +293,6 @@
             if (hitEl && hitEl.classList.contains('hitbox')) {
               const modelId = hitEl.dataset.model;
               hoveredModel = modelId;
-              // Show selection ring on hover
               setSelected(modelId);
             }
           });
@@ -302,27 +303,38 @@
             }
           });
 
-          // Trigger down = grab the hovered model
-          hand.addEventListener('triggerdown', function () {
+          // Grip down (side squeeze) = grab the hovered model
+          function onGrab() {
             if (hoveredModel) {
               grabbed = hoveredModel;
               grabController = hand;
-              // Calculate distance from controller to model
               const modelPos = new THREE.Vector3();
               modelData[grabbed].el.object3D.getWorldPosition(modelPos);
               hand.object3D.getWorldPosition(tempVec);
               grabDistance = tempVec.distanceTo(modelPos);
               setSelected(grabbed);
             }
-          });
+          }
 
-          // Trigger up = release/drop
-          hand.addEventListener('triggerup', function () {
+          // Grip up = release/drop
+          function onRelease() {
             if (grabbed && grabController === hand) {
               grabbed = null;
               grabController = null;
             }
-          });
+          }
+
+          // Listen on both the hand and the child for maximum compatibility
+          hand.addEventListener('gripdown', onGrab);
+          hand.addEventListener('gripup', onRelease);
+          hand.addEventListener('triggerdown', onGrab);
+          hand.addEventListener('triggerup', onRelease);
+          if (controllerChild) {
+            controllerChild.addEventListener('gripdown', onGrab);
+            controllerChild.addEventListener('gripup', onRelease);
+            controllerChild.addEventListener('triggerdown', onGrab);
+            controllerChild.addEventListener('triggerup', onRelease);
+          }
         });
 
         // Thumbstick: Y = scale selected, X = height selected
