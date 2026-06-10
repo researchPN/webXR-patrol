@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Derrick - Walking Model (WebXR)</title>
+  <meta name="description" content="Model walks in a circle around you in WebXR on Meta Quest">
+  <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/gh/c-frame/aframe-extras@7.5.0/dist/aframe-extras.min.js"></script>
+  <script>
+    // Walk-circle: moves the model along a circular path around the camera, looping.
+    // The skeletal "Walk" clip (animation-mixer) animates the legs; this component
+    // just drives the circular path + facing, with a tiny bob/sway for liveliness.
+    AFRAME.registerComponent('walk-circle', {
+      schema: {
+        radius:       { default: 3 },     // metres from the user
+        speed:        { default: 0.4 },   // radians/sec (~16s per lap)
+        bob:          { default: 0 },     // OFF — the rigged legs provide the motion now
+        bobSpeed:     { default: 4 },     // (unused while bob/sway are 0)
+        sway:         { default: 0 },     // OFF — was reading as a weird whole-body "head nod"
+        facingOffset: { default: 180 },   // Rubble faces +Z, so flip to face travel direction
+        paused:       { default: false }
+      },
+      init: function () {
+        this.angle = 0;
+        this.t = 0;
+        this.center = new THREE.Vector3();
+        this.cam = document.querySelector('a-camera');
+      },
+      tick: function (time, dt) {
+        if (!dt || this.data.paused) return;
+        var d = Math.min(dt, 100) / 1000;   // clamp dt so a stutter can't teleport it
+        this.angle += this.data.speed * d;
+        this.t += d;
+
+        // Orbit centre = camera's world XZ, so the model circles the user.
+        var cx = 0, cz = 0;
+        if (this.cam && this.cam.object3D) {
+          this.cam.object3D.getWorldPosition(this.center);
+          cx = this.center.x;
+          cz = this.center.z;
+        }
+
+        var r = this.data.radius;
+        var x = cx + r * Math.cos(this.angle);
+        var z = cz + r * Math.sin(this.angle);
+        var y = Math.abs(Math.sin(this.t * this.data.bobSpeed)) * this.data.bob;
+
+        // Face direction of travel (tangent to the circle).
+        var mx = -Math.sin(this.angle);
+        var mz =  Math.cos(this.angle);
+        var yaw = Math.atan2(-mx, -mz) + THREE.MathUtils.degToRad(this.data.facingOffset);
+        var roll = THREE.MathUtils.degToRad(Math.sin(this.t * this.data.bobSpeed) * this.data.sway);
+
+        // Write straight to object3D — scale is still controlled via setAttribute('scale').
+        this.el.object3D.position.set(x, y, z);
+        this.el.object3D.rotation.set(0, yaw, roll);
+      }
+    });
+  </script>
+  <style>
+    body { margin: 0; overflow: hidden; }
+    #info {
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0, 0, 0, 0.7);
+      color: white;
+      padding: 12px 24px;
+      border-radius: 8px;
+      font-family: sans-serif;
+      font-size: 14px;
+      text-align: center;
+      z-index: 10;
+      pointer-events: none;
+    }
+    #scale-ui {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0, 0, 0, 0.7);
+      color: white;
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-family: sans-serif;
+      font-size: 14px;
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    #scale-ui button {
+      background: #444;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      width: 36px;
+      height: 36px;
+      font-size: 20px;
+      cursor: pointer;
+    }
+    #scale-ui button:hover { background: #666; }
+    #ar-button {
+      position: fixed;
+      bottom: 70px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #00aa55;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      padding: 14px 32px;
+      font-size: 18px;
+      font-family: sans-serif;
+      font-weight: bold;
+      cursor: pointer;
+      z-index: 20;
+      display: none;
+    }
+    #ar-button:hover { background: #00cc66; }
+  </style>
+</head>
+<body>
+  <div id="info">Rubble walks a loop around you (rigged leg animation). Enter AR on Quest, or watch on desktop.</div>
+  <button id="ar-button">Enter AR</button>
+  <div id="scale-ui">
+    <button id="scale-down">-</button>
+    <span id="scale-label">Scale: 1.00x</span>
+    <button id="scale-up">+</button>
+    <button id="pause-toggle" style="width:auto;padding:0 12px;">Pause</button>
+  </div>
+
+  <a-scene
+    vr-mode-ui="enabled: true; enterAREnabled: true; enterARButton: #ar-button"
+    webxr="requiredFeatures: local-floor; optionalFeatures: bounded-floor, hand-tracking; referenceSpaceType: local-floor"
+    renderer="colorManagement: true; physicallyCorrectLights: true; alpha: true"
+    background="transparent: true"
+    loading-screen="dotsColor: white; backgroundColor: #111"
+  >
+    <!-- Lighting -->
+    <a-entity light="type: ambient; color: #BBB; intensity: 0.6"></a-entity>
+    <a-entity light="type: directional; color: #FFF; intensity: 0.8" position="1 3 2"></a-entity>
+    <a-entity light="type: directional; color: #AAC; intensity: 0.4" position="-2 1 -1"></a-entity>
+
+    <!-- 3D Model — rigged Rubble walking a circular path around the camera.
+         animation-mixer plays the baked "Walk" leg cycle; walk-circle drives the path. -->
+    <a-entity
+      id="model"
+      gltf-model="url(model_rigged.glb?v=6)"
+      animation-mixer="loop: repeat"
+      walk-circle="radius: 3; speed: 0.4"
+      scale="1 1 1"
+    ></a-entity>
+
+    <!-- Shadow-only ground plane (visible in VR, hidden in AR) -->
+    <a-plane
+      rotation="-90 0 0"
+      width="10"
+      height="10"
+      color="#222"
+      opacity="0.15"
+      position="0 0 0"
+      class="ar-hide"
+    ></a-plane>
+
+    <!-- Camera rig at floor level -->
+    <a-entity id="rig" position="0 0 0">
+      <a-camera position="0 1.6 0" wasd-controls="enabled: true" look-controls="pointerLockEnabled: false"></a-camera>
+    </a-entity>
+
+    <!-- Quest controllers with laser pointers -->
+    <a-entity id="left-hand" laser-controls="hand: left" raycaster="lineColor: #00ffaa; lineOpacity: 0.8; far: 20"></a-entity>
+    <a-entity id="right-hand" laser-controls="hand: right" raycaster="lineColor: #00ffaa; lineOpacity: 0.8; far: 20"></a-entity>
+  </a-scene>
+
+  <script>
+    // AR button — uses A-Frame's native enterAR so controllers/raycasters work
+    (function () {
+      const arButton = document.getElementById('ar-button');
+      const scene = document.querySelector('a-scene');
+
+      if (navigator.xr) {
+        navigator.xr.isSessionSupported('immersive-ar').then(function (supported) {
+          if (supported) arButton.style.display = 'block';
+        });
+      }
+
+      arButton.addEventListener('click', function () {
+        if (scene.enterAR) {
+          scene.enterAR();
+        } else {
+          if (scene.systems.webxr) {
+            scene.systems.webxr.sessionMode = 'immersive-ar';
+          }
+          scene.enterVR();
+        }
+        arButton.style.display = 'none';
+      });
+
+      scene.addEventListener('exit-vr', function () {
+        if (navigator.xr) {
+          navigator.xr.isSessionSupported('immersive-ar').then(function (supported) {
+            if (supported) arButton.style.display = 'block';
+          });
+        }
+      });
+    })();
+
+    // Hide AR-unnecessary elements when entering AR, show them in VR
+    document.querySelector('a-scene').addEventListener('enter-vr', function () {
+      if (this.is('ar-mode')) {
+        document.querySelectorAll('.ar-hide').forEach(el => el.setAttribute('visible', false));
+      }
+    });
+    document.querySelector('a-scene').addEventListener('exit-vr', function () {
+      document.querySelectorAll('.ar-hide').forEach(el => el.setAttribute('visible', true));
+    });
+
+    // Scale + pause controls
+    (function () {
+      const model = document.getElementById('model');
+
+      let currentScale = 1;
+      const SCALE_STEP = 0.1;
+      const SCALE_MIN = 0.05;
+      const SCALE_MAX = 50;
+      const scaleLabel = document.getElementById('scale-label');
+
+      function setScale(s) {
+        currentScale = Math.max(SCALE_MIN, Math.min(SCALE_MAX, s));
+        model.setAttribute('scale', { x: currentScale, y: currentScale, z: currentScale });
+        scaleLabel.textContent = 'Scale: ' + currentScale.toFixed(2) + 'x';
+      }
+
+      // Desktop buttons
+      document.getElementById('scale-up').addEventListener('click', function (e) {
+        e.stopPropagation();
+        setScale(currentScale + SCALE_STEP);
+      });
+      document.getElementById('scale-down').addEventListener('click', function (e) {
+        e.stopPropagation();
+        setScale(currentScale - SCALE_STEP);
+      });
+
+      // Pause / resume the walk
+      let paused = false;
+      const pauseBtn = document.getElementById('pause-toggle');
+      function togglePause() {
+        paused = !paused;
+        model.setAttribute('walk-circle', 'paused', paused);
+        model.setAttribute('animation-mixer', 'timeScale', paused ? 0 : 1);
+        pauseBtn.textContent = paused ? 'Play' : 'Pause';
+      }
+      pauseBtn.addEventListener('click', function (e) { e.stopPropagation(); togglePause(); });
+
+      // Quest thumbstick: Y-axis = scale, trigger = pause/resume
+      const thumbstickThreshold = 0.5;
+      let thumbstickCooldown = false;
+      ['left-hand', 'right-hand'].forEach(id => {
+        const hand = document.getElementById(id);
+        hand.addEventListener('thumbstickmoved', function (evt) {
+          if (thumbstickCooldown) return;
+          const y = evt.detail.y;
+          if (y < -thumbstickThreshold) {
+            setScale(currentScale * 1.15);
+            thumbstickCooldown = true;
+            setTimeout(() => { thumbstickCooldown = false; }, 200);
+          } else if (y > thumbstickThreshold) {
+            setScale(currentScale / 1.15);
+            thumbstickCooldown = true;
+            setTimeout(() => { thumbstickCooldown = false; }, 200);
+          }
+        });
+        hand.addEventListener('triggerdown', togglePause);
+      });
+
+      // Keyboard: + / - to scale, space to pause
+      window.addEventListener('keydown', function (evt) {
+        if (evt.key === '+' || evt.key === '=') setScale(currentScale + SCALE_STEP);
+        if (evt.key === '-' || evt.key === '_') setScale(currentScale - SCALE_STEP);
+        if (evt.code === 'Space') { evt.preventDefault(); togglePause(); }
+      });
+    })();
+  </script>
+</body>
+</html>
